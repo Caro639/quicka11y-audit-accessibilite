@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quicka11y - Rapport d'Audit d'Accessibilité</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+          Cantarell, sans-serif;
+        line-height: 1.6;
+        color: #1e293b;
+        padding: 40px;
+        background: #f8fafc;
+      }
+
+      .report-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        padding: 40px;
+      }
+
+      .header {
+        text-align: center;
+        border-bottom: 3px solid #8b5cf6;
+        padding-bottom: 30px;
+        margin-bottom: 40px;
+      }
+
+      .header h1 {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        font-size: 36px;
+        color: #1e293b;
+        margin-bottom: 10px;
+      }
+
+      .header p {
+        color: #64748b;
+        font-size: 18px;
+      }
+
+      .meta-info {
+        background: #f1f5f9;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 30px;
+      }
+
+      .meta-info p {
+        margin: 8px 0;
+        color: #475569;
+      }
+
+      .meta-info strong {
+        color: #1e293b;
+      }
+
+      .score-section {
+        text-align: center;
+        background: #4a16a3;
+        color: white;
+        padding: 40px;
+        border-radius: 12px;
+        margin-bottom: 40px;
+      }
+
+      .score-number {
+        font-size: 72px;
+        font-weight: bold;
+        margin-bottom: 10px;
+      }
+
+      .score-label {
+        font-size: 18px;
+        opacity: 0.9;
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 20px;
+        margin-bottom: 40px;
+      }
+
+      .stat {
+        background: #f8fafc;
+        padding: 20px;
+        border-radius: 8px;
+        text-align: center;
+      }
+
+      .stat-value {
+        font-size: 36px;
+        font-weight: bold;
+        color: #8b5cf6;
+        margin-bottom: 5px;
+      }
+
+      .stat-label {
+        color: #64748b;
+        font-size: 14px;
+      }
+
+      .category {
+        margin-bottom: 40px;
+        border: 2px solid #e2e8f0;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .category-header {
+        background: #f8fafc;
+        padding: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .category-title {
+        font-size: 24px;
+        font-weight: 600;
+        color: #1e293b;
+      }
+
+      .category-badge {
+        padding: 8px 16px;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 14px;
+      }
+
+      .category-badge.success {
+        background: #d1fae5;
+        color: #065f46;
+      }
+
+      .category-badge.warning {
+        background: #fef3c7;
+        color: #92400e;
+      }
+
+      .category-content {
+        padding: 20px;
+      }
+
+      .issue {
+        background: #f3e8ff;
+        border-left: 4px solid #8b5cf6;
+        padding: 20px;
+        margin-bottom: 15px;
+        border-radius: 6px;
+      }
+
+      .issue.medium {
+        background: #f3e8ff;
+        border-left-color: #8b5cf6;
+      }
+
+      .issue.faible {
+        background: #f3e8ff;
+        border-left-color: #8b5cf6;
+      }
+
+      .issue-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+
+      .issue-element {
+        font-weight: 600;
+        color: #0f172a;
+      }
+
+      .severity-badge {
+        padding: 4px 10px;
+        border-radius: 10px;
+        font-size: 10px;
+        font-weight: bold;
+        text-transform: uppercase;
+      }
+
+      .severity-badge.élevée {
+        background: #4a16a3;
+        color: white;
+      }
+
+      .severity-badge.medium {
+        background: #f59e0b;
+        color: white;
+      }
+
+      .severity-badge.faible {
+        background: #3b82f6;
+        color: white;
+      }
+
+      .issue-description {
+        margin: 10px 0;
+        color: #475569;
+      }
+
+      .issue-explanation {
+        margin: 10px 0;
+        padding: 10px;
+        background: #f0fdf4;
+        border-left: 3px solid #16a34a;
+        border-radius: 6px;
+        font-size: 14px;
+        color: #0f172a;
+        font-weight: 500;
+      }
+
+      .issue-resources {
+        margin: 10px 0;
+        padding: 12px;
+        background: #f0fdf4;
+        border-left: 3px solid #16a34a;
+        border-radius: 6px;
+        font-size: 13px;
+        color: #0f172a;
+        line-height: 1.6;
+        font-weight: 500;
+      }
+
+      .issue-resources code {
+        background: #dcfce7;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 12px;
+        word-break: break-all;
+        color: #14532d;
+      }
+
+      .success-message {
+        color: #059669;
+        font-size: 16px;
+        text-align: center;
+        padding: 20px;
+      }
+
+      .footer {
+        text-align: center;
+        margin-top: 40px;
+        padding-top: 30px;
+        border-top: 2px solid #e2e8f0;
+        color: #64748b;
+      }
+
+      .footer p {
+        margin: 5px 0;
+      }
+
+      .print-button {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: #4a16a3;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(74, 22, 163, 0.4);
+        z-index: 1000;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .print-button:hover {
+        background: #5c1ec4;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(74, 22, 163, 0.5);
+      }
+
+      .print-button:active {
+        transform: translateY(0);
+      }
+
+      @media print {
+        body {
+          padding: 0;
+          background: white;
+        }
+
+        .print-button {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <button class="print-button" id="printBtn" type="button">
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="M6 9V2h12v7"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <path
+          d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <path
+          d="M6 14h12v8H6z"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+      Imprimer / Enregistrer PDF
+    </button>
+
+    <div class="report-container">
+      <div id="reportContent">
+        <!-- Le contenu sera inséré ici par JavaScript -->
+      </div>
+    </div>
+
+    <script type="module" src="report.js"></script>
+  </body>
+</html>

@@ -1,5 +1,12 @@
 ﻿// Content script to analyze page accessibility
 
+// Protection contre les injections multiples du script
+if (window.accessibilityAuditInjected) {
+  // Ne pas continuer l'exécution du script
+  throw new Error("Script already injected");
+}
+window.accessibilityAuditInjected = true;
+
 // Store marked elements for later modification
 const markedElements = {
   images: [],
@@ -10,8 +17,19 @@ const markedElements = {
   buttons: [],
 };
 
+// Constantes NodeFilter
+const NODE_FILTER_SHOW_TEXT = 4;
+const NODE_FILTER_ACCEPT = 1;
+const NODE_FILTER_REJECT = 2;
+
+// Durée de l'effet de mise en évidence (en ms)
+const HIGHLIGHT_DURATION = 3000;
+
 // Main audit function
 function auditAccessibility() {
+  // Nettoyer les marqueurs de l'audit précédent pour éviter les doublons
+  clearVisualFeedback();
+
   // Reset arrays
   markedElements.images = [];
   markedElements.svgs = [];
@@ -389,13 +407,38 @@ function checkLinkHasAccessibleSVG(link) {
 
 // Extract le texte d'un lien (sans SVG, images, badges)
 function extractLinkText(link) {
-  const linkClone = link.cloneNode(true);
-  linkClone
-    .querySelectorAll(
-      "svg, img, .accessibility-badge, .accessibility-badge-link, .accessibility-badge-svg",
-    )
-    .forEach((el) => el.remove());
-  return linkClone.textContent.trim();
+  // Utiliser TreeWalker directement pour éviter les problèmes de cloneNode
+  // avec les images ayant des srcset invalides ou protégés
+  const walker = document.createTreeWalker(link, NODE_FILTER_SHOW_TEXT, {
+    acceptNode: function (node) {
+      const parent = node.parentElement;
+
+      // Rejeter le texte dans les éléments à ignorer
+      if (
+        parent &&
+        (parent.tagName === "SVG" ||
+          parent.tagName === "IMG" ||
+          parent.closest("svg") || // Texte dans un SVG
+          parent.closest("img") || // Texte dans une img (rare)
+          parent.classList.contains("accessibility-badge") ||
+          parent.classList.contains("accessibility-badge-link") ||
+          parent.classList.contains("accessibility-badge-svg"))
+      ) {
+        return NODE_FILTER_REJECT;
+      }
+
+      return NODE_FILTER_ACCEPT;
+    },
+  });
+
+  let text = "";
+  let node = walker.nextNode();
+  while (node) {
+    text += node.textContent;
+    node = walker.nextNode();
+  }
+
+  return text.trim();
 }
 
 // Vérifier si le texte est non descriptif
@@ -1151,54 +1194,148 @@ function scrollToImage(imageId) {
   const element = document.querySelector(
     `[data-accessibility-id="${imageId}"]`,
   );
-  if (element) {
+
+  // Vérifier si l'élément existe
+  if (!element) {
+    return false;
+  }
+
+  try {
     element.scrollIntoView({
       behavior: "smooth",
       block: "center",
     });
 
-    // Flash temporaire pour attirer l'attention
-    const originalBoxShadow = element.style.boxShadow;
-    element.style.boxShadow = "0 0 30px rgba(239, 68, 68, 1)";
+    // Bordure épaisse très visible pour identifier l'élément
+    const originalStyles = {
+      outline: element.style.outline,
+      outlineOffset: element.style.outlineOffset,
+      boxShadow: element.style.boxShadow,
+      transform: element.style.transform,
+      transition: element.style.transition,
+      zIndex: element.style.zIndex,
+      position: element.style.position,
+    };
+
+    // Utiliser box-shadow pour garantir la visibilité externe
+    // Z-index élevé pour être au-dessus des badges
+    const currentPosition = window.getComputedStyle(element).position;
+    if (currentPosition === "static") {
+      element.style.position = "relative";
+    }
+    element.style.zIndex = "9999999";
+    element.style.outline = "none";
+    element.style.boxShadow =
+      "0 0 0 15px #FF10F0, 0 0 60px 15px rgba(255, 16, 240, 0.8)";
+    element.style.transform = "scale(1.05)";
+    element.style.transition = "transform 0.3s ease";
+
     setTimeout(() => {
-      element.style.boxShadow = originalBoxShadow;
-    }, 1000);
+      Object.assign(element.style, originalStyles);
+    }, HIGHLIGHT_DURATION);
+
+    return true;
+  } catch (error) {
+    console.error(`Erreur lors du scroll vers ${imageId}:`, error);
+    return false;
   }
 }
 
 // Fonction pour scroller vers un lien spécifique
 function scrollToLink(linkId) {
   const element = document.querySelector(`[data-accessibility-id="${linkId}"]`);
-  if (element) {
+
+  if (!element) {
+    return false;
+  }
+
+  try {
     element.scrollIntoView({
       behavior: "smooth",
       block: "center",
     });
 
-    // Flash temporaire pour attirer l'attention
-    const originalOutline = element.style.outline;
-    element.style.outline = "5px solid #f97316";
+    // Bordure épaisse très visible pour identifier l'élément
+    const originalStyles = {
+      outline: element.style.outline,
+      outlineOffset: element.style.outlineOffset,
+      boxShadow: element.style.boxShadow,
+      transform: element.style.transform,
+      transition: element.style.transition,
+      zIndex: element.style.zIndex,
+      position: element.style.position,
+    };
+
+    // Utiliser box-shadow pour garantir la visibilité externe
+    // Z-index élevé pour être au-dessus des badges
+    const currentPosition = window.getComputedStyle(element).position;
+    if (currentPosition === "static") {
+      element.style.position = "relative";
+    }
+    element.style.zIndex = "9999999";
+    element.style.outline = "none";
+    element.style.boxShadow =
+      "0 0 0 15px #FF10F0, 0 0 60px 15px rgba(255, 16, 240, 0.8)";
+    element.style.transform = "scale(1.05)";
+    element.style.transition = "transform 0.3s ease";
+
     setTimeout(() => {
-      element.style.outline = originalOutline;
-    }, 1000);
+      Object.assign(element.style, originalStyles);
+    }, HIGHLIGHT_DURATION);
+
+    return true;
+  } catch (error) {
+    console.error(`Erreur lors du scroll vers ${linkId}:`, error);
+    return false;
   }
 }
 
 // Fonction pour scroller vers un SVG spécifique
 function scrollToSVG(svgId) {
   const element = document.querySelector(`[data-accessibility-id="${svgId}"]`);
-  if (element) {
+
+  if (!element) {
+    return false;
+  }
+
+  try {
     element.scrollIntoView({
       behavior: "smooth",
       block: "center",
     });
 
-    // Flash temporaire pour attirer l'attention
-    const originalOutline = element.style.outline;
-    element.style.outline = "8px solid #a855f7";
+    // Bordure épaisse très visible pour identifier l'élément
+    const originalStyles = {
+      outline: element.style.outline,
+      outlineOffset: element.style.outlineOffset,
+      boxShadow: element.style.boxShadow,
+      transform: element.style.transform,
+      transition: element.style.transition,
+      zIndex: element.style.zIndex,
+      position: element.style.position,
+    };
+
+    // Utiliser box-shadow pour garantir la visibilité externe
+    // Z-index élevé pour être au-dessus des badges
+    const currentPosition = window.getComputedStyle(element).position;
+    if (currentPosition === "static") {
+      element.style.position = "relative";
+    }
+    element.style.zIndex = "9999999";
+    element.style.outline = "none";
+    element.style.boxShadow =
+      "0 0 0 15px #FF10F0, 0 0 60px 15px rgba(255, 16, 240, 0.8)";
+    element.style.transform = "scale(1.05)";
+    element.style.transition = "transform 0.3s ease";
+
     setTimeout(() => {
-      element.style.outline = originalOutline;
-    }, 1000);
+      Object.assign(element.style, originalStyles);
+    }, HIGHLIGHT_DURATION);
+
+    return true;
+  } catch (error) {
+    console.error(`Erreur lors du scroll vers ${svgId}:`, error);
+    return false;
   }
 }
 
@@ -1207,36 +1344,98 @@ function scrollToHeading(headingId) {
   const element = document.querySelector(
     `[data-accessibility-id="${headingId}"]`,
   );
-  if (element) {
+
+  if (!element) {
+    return false;
+  }
+
+  try {
     element.scrollIntoView({
       behavior: "smooth",
       block: "center",
     });
 
-    // Flash temporaire pour attirer l'attention
-    const originalOutline = element.style.outline;
-    element.style.outline = "8px solid #3b82f6";
+    // Bordure épaisse très visible pour identifier l'élément
+    const originalStyles = {
+      outline: element.style.outline,
+      outlineOffset: element.style.outlineOffset,
+      boxShadow: element.style.boxShadow,
+      transform: element.style.transform,
+      transition: element.style.transition,
+      zIndex: element.style.zIndex,
+      position: element.style.position,
+    };
+
+    // Utiliser box-shadow pour garantir la visibilité externe
+    // Z-index élevé pour être au-dessus des badges
+    const currentPosition = window.getComputedStyle(element).position;
+    if (currentPosition === "static") {
+      element.style.position = "relative";
+    }
+    element.style.zIndex = "9999999";
+    element.style.outline = "none";
+    element.style.boxShadow =
+      "0 0 0 15px #FF10F0, 0 0 60px 15px rgba(255, 16, 240, 0.8)";
+    element.style.transform = "scale(1.05)";
+    element.style.transition = "transform 0.3s ease";
+
     setTimeout(() => {
-      element.style.outline = originalOutline;
-    }, 1000);
+      Object.assign(element.style, originalStyles);
+    }, HIGHLIGHT_DURATION);
+
+    return true;
+  } catch (error) {
+    console.error(`Erreur lors du scroll vers ${headingId}:`, error);
+    return false;
   }
 }
 
 // Fonction pour scroller vers un formulaire spécifique
 function scrollToForm(formId) {
   const element = document.querySelector(`[data-accessibility-id="${formId}"]`);
-  if (element) {
+
+  if (!element) {
+    return false;
+  }
+
+  try {
     element.scrollIntoView({
       behavior: "smooth",
       block: "center",
     });
 
-    // Flash temporaire pour attirer l'attention
-    const originalOutline = element.style.outline;
-    element.style.outline = "6px solid #f59e0b";
+    // Bordure épaisse très visible pour identifier l'élément
+    const originalStyles = {
+      outline: element.style.outline,
+      outlineOffset: element.style.outlineOffset,
+      boxShadow: element.style.boxShadow,
+      transform: element.style.transform,
+      transition: element.style.transition,
+      zIndex: element.style.zIndex,
+      position: element.style.position,
+    };
+
+    // Utiliser box-shadow pour garantir la visibilité externe
+    // Z-index élevé pour être au-dessus des badges
+    const currentPosition = window.getComputedStyle(element).position;
+    if (currentPosition === "static") {
+      element.style.position = "relative";
+    }
+    element.style.zIndex = "9999999";
+    element.style.outline = "none";
+    element.style.boxShadow =
+      "0 0 0 15px #FF10F0, 0 0 60px 15px rgba(255, 16, 240, 0.8)";
+    element.style.transform = "scale(1.05)";
+    element.style.transition = "transform 0.3s ease";
+
     setTimeout(() => {
-      element.style.outline = originalOutline;
-    }, 1000);
+      Object.assign(element.style, originalStyles);
+    }, HIGHLIGHT_DURATION);
+
+    return true;
+  } catch (error) {
+    console.error(`Erreur lors du scroll vers ${formId}:`, error);
+    return false;
   }
 }
 
@@ -1245,18 +1444,49 @@ function scrollToButton(buttonId) {
   const element = document.querySelector(
     `[data-accessibility-id="${buttonId}"]`,
   );
-  if (element) {
+
+  if (!element) {
+    return false;
+  }
+
+  try {
     element.scrollIntoView({
       behavior: "smooth",
       block: "center",
     });
 
-    // Flash temporaire pour attirer l'attention
-    const originalOutline = element.style.outline;
-    element.style.outline = "6px solid #10b981";
+    // Bordure épaisse très visible pour identifier l'élément
+    const originalStyles = {
+      outline: element.style.outline,
+      outlineOffset: element.style.outlineOffset,
+      boxShadow: element.style.boxShadow,
+      transform: element.style.transform,
+      transition: element.style.transition,
+      zIndex: element.style.zIndex,
+      position: element.style.position,
+    };
+
+    // Utiliser box-shadow pour garantir la visibilité externe
+    // Z-index élevé pour être au-dessus des badges
+    const currentPosition = window.getComputedStyle(element).position;
+    if (currentPosition === "static") {
+      element.style.position = "relative";
+    }
+    element.style.zIndex = "9999999";
+    element.style.outline = "none";
+    element.style.boxShadow =
+      "0 0 0 15px #FF10F0, 0 0 60px 15px rgba(255, 16, 240, 0.8)";
+    element.style.transform = "scale(1.05)";
+    element.style.transition = "transform 0.3s ease";
+
     setTimeout(() => {
-      element.style.outline = originalOutline;
-    }, 1000);
+      Object.assign(element.style, originalStyles);
+    }, HIGHLIGHT_DURATION);
+
+    return true;
+  } catch (error) {
+    console.error(`Erreur lors du scroll vers ${buttonId}:`, error);
+    return false;
   }
 }
 
@@ -1275,28 +1505,28 @@ const messageHandlers = {
     sendResponse({ success: true });
   },
   scrollToImage: (request, sendResponse) => {
-    scrollToImage(request.imageId);
-    sendResponse({ success: true });
+    const success = scrollToImage(request.imageId);
+    sendResponse({ success });
   },
   scrollToLink: (request, sendResponse) => {
-    scrollToLink(request.linkId);
-    sendResponse({ success: true });
+    const success = scrollToLink(request.linkId);
+    sendResponse({ success });
   },
   scrollToSVG: (request, sendResponse) => {
-    scrollToSVG(request.svgId);
-    sendResponse({ success: true });
+    const success = scrollToSVG(request.svgId);
+    sendResponse({ success });
   },
   scrollToHeading: (request, sendResponse) => {
-    scrollToHeading(request.headingId);
-    sendResponse({ success: true });
+    const success = scrollToHeading(request.headingId);
+    sendResponse({ success });
   },
   scrollToForm: (request, sendResponse) => {
-    scrollToForm(request.formId);
-    sendResponse({ success: true });
+    const success = scrollToForm(request.formId);
+    sendResponse({ success });
   },
   scrollToButton: (request, sendResponse) => {
-    scrollToButton(request.buttonId);
-    sendResponse({ success: true });
+    const success = scrollToButton(request.buttonId);
+    sendResponse({ success });
   },
   applyColorblindFilter: (request, sendResponse) => {
     applyColorblindFilter(request.filterType);

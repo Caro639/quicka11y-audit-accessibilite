@@ -254,7 +254,6 @@ h1 {
 
 .category-switch input[type="checkbox"]:checked + .switch-slider-mini {
   background-color: #4a16a3;
-  /* background-color: #3b82f6; */
 }
 
 .category-switch input[type="checkbox"]:checked + .switch-slider-mini::before {
@@ -497,6 +496,40 @@ h1 {
 
 .goto-btn:active {
   transform: translateY(0);
+}
+
+/* Feedback visuel pour le scrollTo */
+.goto-success {
+  background: #16a34a !important;
+  animation: successPulse 0.3s ease;
+}
+
+.goto-error {
+  background: #dc2626 !important;
+  animation: errorShake 0.3s ease;
+}
+
+@keyframes successPulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+@keyframes errorShake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-4px);
+  }
+  75% {
+    transform: translateX(4px);
+  }
 }
 
 /* "Copy Markdown" button */

@@ -75,7 +75,35 @@ async function clearMarkers() {
   }
 }
 
-async function navigateToImage(imageId) {
+/**
+ * Applique un feedback visuel sur un bouton selon le résultat de l'action
+ * @param {HTMLElement} button - Le bouton à modifier
+ * @param {boolean} success - true si succès, false si échec
+ */
+function applyButtonFeedback(button, success) {
+  if (!button) {
+    return;
+  }
+
+  const originalText = button.textContent;
+  const originalClass = button.className;
+
+  if (success) {
+    button.className = "goto-btn goto-success";
+    button.textContent = "✓ Élément trouvé";
+  } else {
+    button.className = "goto-btn goto-error";
+    button.textContent = "✗ Élément introuvable";
+  }
+
+  // Réinitialiser après 3 secondes
+  setTimeout(() => {
+    button.textContent = originalText;
+    button.className = originalClass;
+  }, TIMEOUTS.FEEDBACK_MESSAGE);
+}
+
+async function navigateToImage(imageId, buttonElement) {
   try {
     const [tab] = await chrome.tabs.query({
       active: true,
@@ -85,19 +113,23 @@ async function navigateToImage(imageId) {
     chrome.tabs.sendMessage(
       tab.id,
       { action: "scrollToImage", imageId: imageId },
-      function (_response) {
+      function (response) {
         if (chrome.runtime.lastError) {
           console.error("Erreur:", chrome.runtime.lastError);
+          applyButtonFeedback(buttonElement, false);
           return;
         }
+        // Capturer le résultat du scrollTo
+        applyButtonFeedback(buttonElement, response?.success);
       },
     );
   } catch (error) {
     console.error("Erreur lors de la navigation:", error);
+    applyButtonFeedback(buttonElement, false);
   }
 }
 
-async function navigateToLink(linkId) {
+async function navigateToLink(linkId, buttonElement) {
   try {
     const [tab] = await chrome.tabs.query({
       active: true,
@@ -107,15 +139,18 @@ async function navigateToLink(linkId) {
     chrome.tabs.sendMessage(
       tab.id,
       { action: "scrollToLink", linkId: linkId },
-      function (_response) {
+      function (response) {
         if (chrome.runtime.lastError) {
           console.error("Erreur:", chrome.runtime.lastError);
+          applyButtonFeedback(buttonElement, false);
           return;
         }
+        applyButtonFeedback(buttonElement, response?.success);
       },
     );
   } catch (error) {
     console.error("Erreur lors de la navigation:", error);
+    applyButtonFeedback(buttonElement, false);
   }
 }
 
@@ -124,7 +159,7 @@ function copyGitHubMarkdown(issue, category, buttonElement) {
   copyMarkdownToClipboard(markdown, buttonElement, "✓ Copié !");
 }
 
-async function navigateToSVG(svgId) {
+async function navigateToSVG(svgId, buttonElement) {
   try {
     const [tab] = await chrome.tabs.query({
       active: true,
@@ -134,19 +169,22 @@ async function navigateToSVG(svgId) {
     chrome.tabs.sendMessage(
       tab.id,
       { action: "scrollToSVG", svgId: svgId },
-      function (_response) {
+      function (response) {
         if (chrome.runtime.lastError) {
           console.error("Erreur:", chrome.runtime.lastError);
+          applyButtonFeedback(buttonElement, false);
           return;
         }
+        applyButtonFeedback(buttonElement, response?.success);
       },
     );
   } catch (error) {
     console.error("Erreur lors de la navigation:", error);
+    applyButtonFeedback(buttonElement, false);
   }
 }
 
-async function navigateToHeading(headingId) {
+async function navigateToHeading(headingId, buttonElement) {
   try {
     const [tab] = await chrome.tabs.query({
       active: true,
@@ -156,19 +194,22 @@ async function navigateToHeading(headingId) {
     chrome.tabs.sendMessage(
       tab.id,
       { action: "scrollToHeading", headingId: headingId },
-      function (_response) {
+      function (response) {
         if (chrome.runtime.lastError) {
           console.error("Erreur:", chrome.runtime.lastError);
+          applyButtonFeedback(buttonElement, false);
           return;
         }
+        applyButtonFeedback(buttonElement, response?.success);
       },
     );
   } catch (error) {
     console.error("Erreur lors de la navigation:", error);
+    applyButtonFeedback(buttonElement, false);
   }
 }
 
-async function navigateToForm(formId) {
+async function navigateToForm(formId, buttonElement) {
   try {
     const [tab] = await chrome.tabs.query({
       active: true,
@@ -178,19 +219,22 @@ async function navigateToForm(formId) {
     chrome.tabs.sendMessage(
       tab.id,
       { action: "scrollToForm", formId: formId },
-      function (_response) {
+      function (response) {
         if (chrome.runtime.lastError) {
           console.error("Erreur:", chrome.runtime.lastError);
+          applyButtonFeedback(buttonElement, false);
           return;
         }
+        applyButtonFeedback(buttonElement, response?.success);
       },
     );
   } catch (error) {
     console.error("Erreur lors de la navigation:", error);
+    applyButtonFeedback(buttonElement, false);
   }
 }
 
-async function navigateToButton(buttonId) {
+async function navigateToButton(buttonId, buttonElement) {
   try {
     const [tab] = await chrome.tabs.query({
       active: true,
@@ -200,15 +244,18 @@ async function navigateToButton(buttonId) {
     chrome.tabs.sendMessage(
       tab.id,
       { action: "scrollToButton", buttonId: buttonId },
-      function (_response) {
+      function (response) {
         if (chrome.runtime.lastError) {
           console.error("Erreur:", chrome.runtime.lastError);
+          applyButtonFeedback(buttonElement, false);
           return;
         }
+        applyButtonFeedback(buttonElement, response?.success);
       },
     );
   } catch (error) {
     console.error("Erreur lors de la navigation:", error);
+    applyButtonFeedback(buttonElement, false);
   }
 }
 
@@ -440,7 +487,7 @@ function attachNavigationListeners(contentElement, name) {
     btn.addEventListener("click", () => {
       const elementId = btn.getAttribute(config.attr);
       if (elementId) {
-        config.handler(elementId);
+        config.handler(elementId, btn); // Passer le bouton pour le feedback visuel
       }
     });
   });

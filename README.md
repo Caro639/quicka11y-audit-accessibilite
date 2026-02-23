@@ -39,6 +39,8 @@ Une extension de navigateur simple et efficace pour auditer l'accessibilité de 
 
 Si vous rencontrez des difficultés lors de l'installation, n'hésitez pas à me contacter sur LinkedIn.
 
+Contact LinkedIn : [Carole Werner](https://www.linkedin.com/in/carole-werner-096a9b212)
+
 ---
 
 **Note** : Cette extension fonctionne uniquement avec les navigateurs basés sur Chromium (Chrome, Edge, Brave, etc.).

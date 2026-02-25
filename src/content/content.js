@@ -15,6 +15,7 @@ const markedElements = {
   headings: [],
   forms: [],
   buttons: [],
+  contrast: [],
 };
 
 // Constantes NodeFilter
@@ -24,6 +25,89 @@ const NODE_FILTER_REJECT = 2;
 
 // Durée de l'effet de mise en évidence (en ms)
 const HIGHLIGHT_DURATION = 3000;
+
+// ============= CONSTANTES POUR LE CALCUL DE CONTRASTE =============
+
+// Constantes pour la conversion RGB → Luminance relative (norme sRGB)
+const RGB_MAX_VALUE = 255; // Valeur maximale d'une composante RGB (0-255)
+const SRGB_THRESHOLD = 0.03928; // Seuil de linéarisation sRGB
+const SRGB_LINEAR_DIVISOR = 12.92; // Diviseur pour la partie linéaire
+const SRGB_OFFSET = 0.055; // Offset pour la partie non-linéaire
+const SRGB_GAMMA_DIVISOR = 1.055; // Diviseur pour le gamma
+const SRGB_GAMMA_EXPONENT = 2.4; // Exposant gamma
+
+// Coefficients de luminance relative (norme ITU-R BT.709)
+const LUMINANCE_RED_COEFFICIENT = 0.2126; // Coefficient rouge
+const LUMINANCE_GREEN_COEFFICIENT = 0.7152; // Coefficient vert
+const LUMINANCE_BLUE_COEFFICIENT = 0.0722; // Coefficient bleu
+
+// Constantes pour le calcul du ratio de contraste WCAG
+const CONTRAST_OFFSET = 0.05; // Offset WCAG pour le calcul du ratio
+
+// Constantes pour l'analyse des couleurs hexadécimales
+const HEX_SHORT_LENGTH = 3; // Longueur d'un hex court (#RGB)
+const HEX_BLUE_START_INDEX = 4; // Position du bleu dans hex long (#RRGGBB)
+const HEX_COMPONENT_LENGTH = 2; // Longueur d'une composante hex (RR, GG, BB)
+const HEX_RADIX = 16; // Base hexadécimale
+
+// Constantes pour la détection du texte large (WCAG 2.1)
+const LARGE_TEXT_MIN_SIZE = 24; // Taille minimale en px pour texte large
+const LARGE_TEXT_MIN_SIZE_BOLD = 18.66; // Taille minimale en px pour texte large gras
+const BOLD_FONT_WEIGHT_THRESHOLD = 700; // Poids minimum pour considérer comme gras
+
+// Ratios de contraste minimum selon WCAG 2.1 AA
+const CONTRAST_RATIO_NORMAL_TEXT = 4.5; // Ratio minimum pour texte normal
+const CONTRAST_RATIO_LARGE_TEXT = 3; // Ratio minimum pour texte large
+
+// Constantes pour la détection du texte direct
+const TEXT_NODE_TYPE = 3; // Type de noeud pour les text nodes (Node.TEXT_NODE)
+
+// Limite de performance pour l'analyse du contraste
+const MAX_CONTRAST_ELEMENTS = 500; // Nombre maximum d'éléments à analyser (augmenté pour pages complexes)
+
+// Constante pour la longueur maximale des snippets HTML
+const MAX_HTML_SNIPPET_LENGTH = 500; // Nombre maximum de caractères pour un snippet HTML
+
+// ============= FONCTION UTILITAIRE POUR LES SNIPPETS HTML =============
+
+/**
+ * Génère un extrait de code HTML propre pour un élément
+ * @param {HTMLElement} element - L'élément DOM à extraire
+ * @returns {string} - Snippet HTML nettoyé et tronqué si nécessaire
+ */
+function generateHTMLSnippet(element) {
+  if (!element || !element.outerHTML) {
+    return "";
+  }
+
+  // Cloner l'élément pour ne pas modifier l'original
+  const clone = element.cloneNode(true);
+
+  // Supprimer les attributs ajoutés par notre extension
+  clone.removeAttribute("data-accessibility-id");
+  clone.removeAttribute("data-accessibility-issue");
+  clone.removeAttribute("data-position-changed");
+
+  // Supprimer aussi les styles ajoutés par notre extension
+  clone.style.outline = "";
+  clone.style.outlineOffset = "";
+  clone.style.boxShadow = "";
+  clone.style.border = "";
+  clone.style.animation = "";
+
+  // Supprimer les badges d'accessibilité du clone
+  const badges = clone.querySelectorAll('[class*="accessibility-badge"]');
+  badges.forEach((badge) => badge.remove());
+
+  let html = clone.outerHTML;
+
+  // Tronquer si trop long
+  if (html.length > MAX_HTML_SNIPPET_LENGTH) {
+    html = `${html.substring(0, MAX_HTML_SNIPPET_LENGTH)}...`;
+  }
+
+  return html;
+}
 
 // Main audit function
 function auditAccessibility() {
@@ -37,6 +121,7 @@ function auditAccessibility() {
   markedElements.headings = [];
   markedElements.forms = [];
   markedElements.buttons = [];
+  markedElements.contrast = [];
 
   const results = {
     images: checkImages(),
@@ -44,6 +129,7 @@ function auditAccessibility() {
     links: checkLinks(),
     headings: checkHeadings(),
     forms: checkForms(),
+    contrast: checkContrast(),
     colorblind: { total: 0, issues: [], passed: 0 },
     lang: checkLanguage(),
     landmarks: checkLandmarks(),
@@ -51,6 +137,367 @@ function auditAccessibility() {
   };
 
   return results;
+}
+
+// ============= FONCTIONS UTILITAIRES POUR LE CONTRASTE =============
+
+/**
+ * Convertit une composante de couleur sRGB en luminance relative
+ * @param {number} colorValue - Valeur de la composante (0-255)
+ * @returns {number} - Luminance relative
+ */
+function getRGBLuminance(colorValue) {
+  const val = colorValue / RGB_MAX_VALUE;
+  return val <= SRGB_THRESHOLD
+    ? val / SRGB_LINEAR_DIVISOR
+    : Math.pow((val + SRGB_OFFSET) / SRGB_GAMMA_DIVISOR, SRGB_GAMMA_EXPONENT);
+}
+
+/**
+ * Calcule la luminance relative d'une couleur RGB
+ * @param {number} r - Rouge (0-255)
+ * @param {number} g - Vert (0-255)
+ * @param {number} b - Bleu (0-255)
+ * @returns {number} - Luminance relative (0-1)
+ */
+function getRelativeLuminance(r, g, b) {
+  const rLum = getRGBLuminance(r);
+  const gLum = getRGBLuminance(g);
+  const bLum = getRGBLuminance(b);
+  return (
+    LUMINANCE_RED_COEFFICIENT * rLum +
+    LUMINANCE_GREEN_COEFFICIENT * gLum +
+    LUMINANCE_BLUE_COEFFICIENT * bLum
+  );
+}
+
+/**
+ * Parse une couleur CSS et retourne les composantes RGB
+ * @param {string} color - Couleur CSS (rgb, rgba, hex)
+ * @returns {Object|null} - {r, g, b, a} ou null si invalide
+ */
+function parseColor(color) {
+  if (!color || color === "transparent") {
+    return null;
+  }
+
+  // RGB ou RGBA
+  const rgbMatch = color.match(
+    /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)/,
+  );
+  if (rgbMatch) {
+    return {
+      r: parseInt(rgbMatch[1]),
+      g: parseInt(rgbMatch[2]),
+      b: parseInt(rgbMatch[3]),
+      a: rgbMatch[4] ? parseFloat(rgbMatch[4]) : 1,
+    };
+  }
+
+  // Hex
+  const hexMatch = color.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hexMatch) {
+    let hex = hexMatch[1];
+    if (hex.length === HEX_SHORT_LENGTH) {
+      hex = hex
+        .split("")
+        .map((c) => c + c)
+        .join("");
+    }
+    return {
+      r: parseInt(hex.slice(0, HEX_COMPONENT_LENGTH), HEX_RADIX),
+      g: parseInt(
+        hex.slice(HEX_COMPONENT_LENGTH, HEX_COMPONENT_LENGTH * 2),
+        HEX_RADIX,
+      ),
+      b: parseInt(
+        hex.slice(
+          HEX_BLUE_START_INDEX,
+          HEX_BLUE_START_INDEX + HEX_COMPONENT_LENGTH,
+        ),
+        HEX_RADIX,
+      ),
+      a: 1,
+    };
+  }
+
+  // Couleurs nommées simples
+  const colorMap = {
+    white: { r: 255, g: 255, b: 255, a: 1 },
+    black: { r: 0, g: 0, b: 0, a: 1 },
+    red: { r: 255, g: 0, b: 0, a: 1 },
+    green: { r: 0, g: 128, b: 0, a: 1 },
+    blue: { r: 0, g: 0, b: 255, a: 1 },
+  };
+
+  return colorMap[color.toLowerCase()] || null;
+}
+
+/**
+ * Calcule le ratio de contraste entre deux couleurs selon WCAG 2.1
+ * @param {string} fgColor - Couleur du texte
+ * @param {string} bgColor - Couleur du fond
+ * @returns {number} - Ratio de contraste (1-21)
+ */
+function calculateContrastRatio(fgColor, bgColor) {
+  const fg = parseColor(fgColor);
+  const bg = parseColor(bgColor);
+
+  if (!fg || !bg) {
+    return 0;
+  }
+
+  const fgLum = getRelativeLuminance(fg.r, fg.g, fg.b);
+  const bgLum = getRelativeLuminance(bg.r, bg.g, bg.b);
+
+  const lighter = Math.max(fgLum, bgLum);
+  const darker = Math.min(fgLum, bgLum);
+
+  return (lighter + CONTRAST_OFFSET) / (darker + CONTRAST_OFFSET);
+}
+
+/**
+ * Détermine si un texte est considéré comme "grand" selon WCAG
+ * @param {number} fontSize - Taille de la police en pixels
+ * @param {string} fontWeight - Poids de la police
+ * @returns {boolean}
+ */
+function isLargeText(fontSize, fontWeight) {
+  const isBold =
+    fontWeight === "bold" || parseInt(fontWeight) >= BOLD_FONT_WEIGHT_THRESHOLD;
+  return (
+    fontSize >= LARGE_TEXT_MIN_SIZE ||
+    (fontSize >= LARGE_TEXT_MIN_SIZE_BOLD && isBold)
+  );
+}
+
+/**
+ * Vérifie si un élément a du texte direct (pas dans les enfants)
+ * Retourne true uniquement si l'élément a des text nodes directs
+ * @param {HTMLElement} element - L'élément à vérifier
+ * @returns {boolean}
+ */
+function hasDirectTextContent(element) {
+  // Parcourir les childNodes directs
+  for (const node of element.childNodes) {
+    // Si c'est un text node (nodeType TEXT_NODE_TYPE) avec du contenu non vide
+    if (
+      node.nodeType === TEXT_NODE_TYPE &&
+      node.textContent.trim().length > 0
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Traite un élément pour vérifier le contraste et créer les marqueurs visuels
+ * @param {HTMLElement} el - L'élément à vérifier
+ * @param {number} issueIndex - Index de l'erreur
+ * @returns {Object|null} - Objet représentant l'erreur ou null si aucun problème
+ */
+function processContrastElement(el, issueIndex) {
+  const style = window.getComputedStyle(el);
+  const fgColor = style.color;
+  const bgColor = style.backgroundColor;
+
+  // Skip si fond transparent (nécessiterait calcul complexe avec parents)
+  if (!bgColor || bgColor === "transparent" || bgColor === "rgba(0, 0, 0, 0)") {
+    return null;
+  }
+
+  const bg = parseColor(bgColor);
+  // Skip si fond semi-transparent (trop complexe)
+  if (bg && bg.a < 1) {
+    return null;
+  }
+
+  const ratio = calculateContrastRatio(fgColor, bgColor);
+  const fontSize = parseFloat(style.fontSize);
+  const fontWeight = style.fontWeight;
+  const largeText = isLargeText(fontSize, fontWeight);
+
+  // Ratio minimum selon WCAG 2.1 AA
+  const minimumRatio = largeText
+    ? CONTRAST_RATIO_LARGE_TEXT
+    : CONTRAST_RATIO_NORMAL_TEXT;
+
+  if (ratio > 0 && ratio < minimumRatio) {
+    const contrastId = `accessibility-contrast-${issueIndex}`;
+    el.setAttribute("data-accessibility-id", contrastId);
+    el.setAttribute("data-accessibility-issue", "low-contrast");
+
+    // Ajouter bordure violet foncé
+    el.style.outline = "3px solid #6b21a8";
+    el.style.outlineOffset = "2px";
+    el.style.boxShadow = "0 0 15px rgba(107, 33, 168, 0.5)";
+
+    // Stocker l'élément
+    markedElements.contrast.push(el);
+
+    // Créer et ajouter un badge violet foncé
+    createContrastBadge(el, contrastId);
+
+    // Ajouter les styles nécessaires
+    ensureContrastStyles();
+
+    return {
+      element: `${el.tagName.toLowerCase()} ${issueIndex + 1}`,
+      issue: `Contraste insuffisant (${ratio.toFixed(2)}:1 < ${minimumRatio}:1)`,
+      explanation: largeText
+        ? "Pour du texte large, le ratio minimum est 3:1 (WCAG AA)."
+        : "Pour du texte normal, le ratio minimum est 4.5:1 (WCAG AA).",
+      severity: "élevée",
+      ratio: ratio.toFixed(2),
+      required: minimumRatio,
+      fgColor: fgColor,
+      bgColor: bgColor,
+      fontSize: `${fontSize.toFixed(1)}px`,
+      contrastId: contrastId,
+      htmlSnippet: generateHTMLSnippet(el),
+    };
+  }
+
+  return null;
+}
+
+/**
+ * S'assure que les styles pour les badges de contraste sont présents
+ */
+function ensureContrastStyles() {
+  // Ajouter le style d'animation si pas encore présent
+  if (!document.getElementById("accessibility-animation-styles")) {
+    const style = document.createElement("style");
+    style.id = "accessibility-animation-styles";
+    style.textContent = `
+      @keyframes pulse-red {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  // Ajouter le style du badge contrast si pas encore présent
+  if (!document.getElementById("accessibility-contrast-badge-style")) {
+    const badgeStyle = document.createElement("style");
+    badgeStyle.id = "accessibility-contrast-badge-style";
+    badgeStyle.textContent = `
+      .accessibility-badge-contrast {
+        position: absolute;
+        top: 0;
+        left: 0;
+        background: #6b21a8;
+        color: white;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: bold;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        z-index: 999999;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        pointer-events: none;
+        animation: pulse-red 2s infinite;
+        white-space: nowrap;
+      }
+    `;
+    document.head.appendChild(badgeStyle);
+  }
+}
+
+/**
+ * Vérifie le contraste des couleurs (texte sur fond uni uniquement)
+ * Limite à MAX_CONTRAST_ELEMENTS (500) éléments pour les performances
+ */
+function checkContrast() {
+  // Sélectionner tous les éléments textuels pertinents
+  const allElements = Array.from(
+    document.querySelectorAll(
+      "p, h1, h2, h3, h4, h5, h6, a, button, span, li, td, th, label",
+    ),
+  ).filter((el) => {
+    // Ignorer les éléments cachés
+    const style = window.getComputedStyle(el);
+    if (
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      style.opacity === "0"
+    ) {
+      return false;
+    }
+
+    // Pour les éléments interactifs (button, a, label), accepter tout texte visible
+    const isInteractive = ["BUTTON", "A", "LABEL"].includes(el.tagName);
+
+    if (isInteractive) {
+      return el.textContent.trim().length > 0;
+    }
+
+    // Pour les autres éléments, vérifier qu'il y a du texte direct
+    return hasDirectTextContent(el);
+  });
+
+  // Prioriser les éléments interactifs (button, a, label) car plus critiques pour l'accessibilité
+  const interactiveElements = allElements.filter((el) =>
+    ["BUTTON", "A", "LABEL"].includes(el.tagName),
+  );
+  const otherElements = allElements.filter(
+    (el) => !["BUTTON", "A", "LABEL"].includes(el.tagName),
+  );
+
+  // Combiner : interactifs d'abord, puis les autres, puis limiter à MAX_CONTRAST_ELEMENTS
+  const textElements = [...interactiveElements, ...otherElements].slice(
+    0,
+    MAX_CONTRAST_ELEMENTS,
+  );
+
+  const issues = [];
+  let issueIndex = 0;
+
+  textElements.forEach((el) => {
+    const issue = processContrastElement(el, issueIndex);
+    if (issue) {
+      issues.push(issue);
+      issueIndex++;
+    }
+  });
+
+  return {
+    total: textElements.length,
+    issues: issues,
+    passed: textElements.length - issues.length,
+    disclaimer:
+      'Contraste analysé pour texte sur fonds unis uniquement. Les dégradés, filtres et transparences nécessitent une vérification manuelle. <a href="https://webaim.org/resources/contrastchecker/" target="_blank" rel="noopener noreferrer">Tester avec l\'outil WebAIM →</a>',
+  };
+}
+
+/**
+ * Créer un badge pour un élément avec problème de contraste
+ */
+function createContrastBadge(element, contrastId) {
+  if (
+    element.parentElement.querySelector(
+      `.accessibility-badge-contrast[data-badge-for="${contrastId}"]`,
+    )
+  ) {
+    return; // Badge déjà présent
+  }
+
+  const badge = document.createElement("div");
+  badge.className = "accessibility-badge-contrast";
+  badge.textContent = "⚠️ CONTRASTE FAIBLE";
+  badge.setAttribute("data-badge-for", contrastId);
+
+  // S'assurer que le parent a position: relative
+  const parent = element.parentElement;
+  const originalPosition = window.getComputedStyle(parent).position;
+  if (originalPosition === "static") {
+    parent.style.position = "relative";
+    parent.setAttribute("data-position-changed", "true");
+  }
+
+  parent.appendChild(badge);
 }
 
 // Check images without alt text
@@ -166,6 +613,7 @@ function checkImages() {
         severity: "élevée",
         src: img.src,
         imageId: imageId,
+        htmlSnippet: generateHTMLSnippet(img),
       });
     } else {
       // Remove style if l'image a un alt valide
@@ -289,7 +737,7 @@ function removeVisualFeedbackFromSVG(svg) {
 }
 
 // Créer un objet issue pour un SVG
-function createSVGIssue(index, svgId) {
+function createSVGIssue(svg, index, svgId) {
   return {
     element: `SVG ${index + 1}`,
     issue: "SVG inline sans description",
@@ -297,6 +745,7 @@ function createSVGIssue(index, svgId) {
       'Ajoutez role="img" + aria-label, ou un élément title interne, ou aria-hidden="true" si décoratif',
     severity: "élevée",
     svgId: svgId,
+    htmlSnippet: generateHTMLSnippet(svg),
   };
 }
 
@@ -310,7 +759,7 @@ function checkSVG() {
     if (!isSVGAccessible(svg)) {
       // SVG non accessible : ajouter le feedback visuel
       const svgId = addVisualFeedbackToSVG(svg, index);
-      issues.push(createSVGIssue(index, svgId));
+      issues.push(createSVGIssue(svg, index, svgId));
     } else {
       // SVG accessible : supprimer le feedback visuel si présent
       removeVisualFeedbackFromSVG(svg);
@@ -356,6 +805,7 @@ function analyzeLinkAccessibility(link, index) {
   // Case 1 : Lien sans description accessible
   if (!hasAccessibleDescription) {
     return createLinkIssue(
+      link,
       index,
       "Lien sans texte descriptif",
       "Sans texte, un utilisateur non-voyant ne sait pas où mène ce lien !",
@@ -367,6 +817,7 @@ function analyzeLinkAccessibility(link, index) {
   // Case 2 : Texte non descriptif sans aria-label
   if (isNonDescriptiveText(text) && !ariaLabel) {
     return createLinkIssue(
+      link,
       index,
       "Texte de lien non descriptif",
       "Ajoutez un aria-label pour décrire la destination (ex: aria-label='En savoir plus sur [sujet]')",
@@ -453,7 +904,7 @@ function isNonDescriptiveText(text) {
 }
 
 // Créer un objet d'issue pour un lien
-function createLinkIssue(index, issue, explanation, severity, details) {
+function createLinkIssue(link, index, issue, explanation, severity, details) {
   const linkId = `accessibility-link-${index}`;
   return {
     element: `Lien ${index + 1}`,
@@ -461,6 +912,7 @@ function createLinkIssue(index, issue, explanation, severity, details) {
     explanation: explanation,
     severity: severity,
     linkId: linkId,
+    htmlSnippet: generateHTMLSnippet(link),
     ...details,
   };
 }
@@ -650,6 +1102,7 @@ function checkHeadings() {
         severity: "moyenne",
         text: heading.textContent.trim(),
         headingId: headingId,
+        htmlSnippet: generateHTMLSnippet(heading),
       });
 
       issueIndex++;
@@ -698,6 +1151,7 @@ function checkHeadings() {
           "Un titre vide n'apporte aucune information et perturbe la navigation pour les utilisateurs de technologies d'assistance.",
         severity: "élevée",
         headingId: headingId,
+        htmlSnippet: generateHTMLSnippet(heading),
       });
 
       issueIndex++;
@@ -799,6 +1253,7 @@ function checkForms() {
         severity: "élevée",
         type: input.type || "text",
         formId: formId,
+        htmlSnippet: generateHTMLSnippet(input),
       });
 
       issueIndex++;
@@ -998,6 +1453,7 @@ function checkButtons() {
           "Un bouton sans texte ou aria-label est inutilisable pour les utilisateurs de lecteurs d'écran qui ne comprennent pas son action.",
         severity: "élevée",
         buttonId: buttonId,
+        htmlSnippet: generateHTMLSnippet(button),
       });
 
       issueIndex++;
@@ -1160,6 +1616,32 @@ function clearVisualFeedback() {
     }
   });
 
+  // Nettoyer les éléments avec problème de contraste
+  const markedContrast = document.querySelectorAll(
+    '[data-accessibility-issue="low-contrast"]',
+  );
+  markedContrast.forEach((el) => {
+    el.style.outline = "";
+    el.style.outlineOffset = "";
+    el.style.boxShadow = "";
+    el.removeAttribute("data-accessibility-issue");
+    el.removeAttribute("data-accessibility-id");
+
+    // Remove badge du contraste
+    const badge = el.parentElement.querySelector(
+      ".accessibility-badge-contrast",
+    );
+    if (badge) {
+      badge.remove();
+    }
+
+    // Restore parent position si elle a été changée
+    if (el.parentElement.getAttribute("data-position-changed") === "true") {
+      el.parentElement.style.position = "";
+      el.parentElement.removeAttribute("data-position-changed");
+    }
+  });
+
   // Retirer tous les badges orphelins (au cas où)
   document.querySelectorAll(".accessibility-badge").forEach((badge) => {
     badge.remove();
@@ -1179,6 +1661,11 @@ function clearVisualFeedback() {
   document.querySelectorAll(".accessibility-badge-button").forEach((badge) => {
     badge.remove();
   });
+  document
+    .querySelectorAll(".accessibility-badge-contrast")
+    .forEach((badge) => {
+      badge.remove();
+    });
 
   // Retirer les styles d'animation
   const animationStyles = document.getElementById(
@@ -1186,6 +1673,14 @@ function clearVisualFeedback() {
   );
   if (animationStyles) {
     animationStyles.remove();
+  }
+
+  // Retirer les styles de badge de contraste
+  const contrastBadgeStyle = document.getElementById(
+    "accessibility-contrast-badge-style",
+  );
+  if (contrastBadgeStyle) {
+    contrastBadgeStyle.remove();
   }
 }
 
@@ -1490,7 +1985,57 @@ function scrollToButton(buttonId) {
   }
 }
 
-// Map des gestionnaires d'actions pour réduire la complexité cyclomatique
+// Fonction pour scroller vers un élément avec problème de contraste
+function scrollToContrast(contrastId) {
+  const element = document.querySelector(
+    `[data-accessibility-id="${contrastId}"]`,
+  );
+
+  if (!element) {
+    return false;
+  }
+
+  try {
+    element.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+
+    // Bordure épaisse très visible pour identifier l'élément
+    const originalStyles = {
+      outline: element.style.outline,
+      outlineOffset: element.style.outlineOffset,
+      boxShadow: element.style.boxShadow,
+      transform: element.style.transform,
+      transition: element.style.transition,
+      zIndex: element.style.zIndex,
+      position: element.style.position,
+    };
+
+    // Utiliser box-shadow violet foncé pour identifier l'élément
+    const currentPosition = window.getComputedStyle(element).position;
+    if (currentPosition === "static") {
+      element.style.position = "relative";
+    }
+    element.style.zIndex = "9999999";
+    element.style.outline = "none";
+    element.style.boxShadow =
+      "0 0 0 15px #6b21a8, 0 0 60px 15px rgba(107, 33, 168, 0.8)";
+    element.style.transform = "scale(1.05)";
+    element.style.transition = "transform 0.3s ease";
+
+    setTimeout(() => {
+      Object.assign(element.style, originalStyles);
+    }, HIGHLIGHT_DURATION);
+
+    return true;
+  } catch (error) {
+    console.error(`Erreur lors du scroll vers ${contrastId}:`, error);
+    return false;
+  }
+}
+
+// Map des gestionnaires d'actions pour réduire la complexité
 const messageHandlers = {
   ping: (request, sendResponse) => {
     // Répondre au ping pour confirmer que le script est injecté
@@ -1526,6 +2071,10 @@ const messageHandlers = {
   },
   scrollToButton: (request, sendResponse) => {
     const success = scrollToButton(request.buttonId);
+    sendResponse({ success });
+  },
+  scrollToContrast: (request, sendResponse) => {
+    const success = scrollToContrast(request.contrastId);
     sendResponse({ success });
   },
   applyColorblindFilter: (request, sendResponse) => {
@@ -1703,6 +2252,33 @@ function updateVisualMarkersWithFilters(filters) {
     } else {
       button.style.outline = "none";
       button.style.outlineOffset = "0";
+      if (badge) {
+        badge.style.display = "none";
+      }
+    }
+  });
+
+  // Contraste - utiliser le tableau stocké
+  markedElements.contrast.forEach((el) => {
+    if (!el.parentElement) {
+      return;
+    }
+
+    const badge = el.parentElement.querySelector(
+      ".accessibility-badge-contrast",
+    );
+
+    if (filters.contrast) {
+      el.style.outline = "3px solid #6b21a8";
+      el.style.outlineOffset = "2px";
+      el.style.boxShadow = "0 0 15px rgba(107, 33, 168, 0.5)";
+      if (badge) {
+        badge.style.display = "";
+      }
+    } else {
+      el.style.outline = "none";
+      el.style.outlineOffset = "0";
+      el.style.boxShadow = "none";
       if (badge) {
         badge.style.display = "none";
       }

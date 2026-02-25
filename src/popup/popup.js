@@ -21,6 +21,7 @@ const activeFilters = {
   colorblind: true,
   structure: true,
   buttons: true,
+  contrast: true,
 };
 
 // Stocker les résultats complets pour pouvoir les filtrer
@@ -259,6 +260,31 @@ async function navigateToButton(buttonId, buttonElement) {
   }
 }
 
+async function navigateToContrast(contrastId, buttonElement) {
+  try {
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
+
+    chrome.tabs.sendMessage(
+      tab.id,
+      { action: "scrollToContrast", contrastId: contrastId },
+      function (response) {
+        if (chrome.runtime.lastError) {
+          console.error("Erreur:", chrome.runtime.lastError);
+          applyButtonFeedback(buttonElement, false);
+          return;
+        }
+        applyButtonFeedback(buttonElement, response?.success);
+      },
+    );
+  } catch (error) {
+    console.error("Erreur lors de la navigation:", error);
+    applyButtonFeedback(buttonElement, false);
+  }
+}
+
 // Fonction pour appliquer un filtre de daltonisme
 async function applyColorblindFilter(filterType) {
   try {
@@ -376,6 +402,12 @@ function displayResults(results) {
     "headingsBadge",
   );
   displayCategory("forms", filteredResults.forms, "formsContent", "formsBadge");
+  displayCategory(
+    "contrast",
+    filteredResults.contrast,
+    "contrastContent",
+    "contrastBadge",
+  );
 
   // Attacher les listeners du simulateur de daltonisme
   attachColorblindListeners();
@@ -445,6 +477,8 @@ function toggleCategoriesVisibility() {
   document.getElementById("formsCategory").style.display = activeFilters.forms
     ? "block"
     : "none";
+  document.getElementById("contrastCategory").style.display =
+    activeFilters.contrast ? "block" : "none";
   document.getElementById("colorblindCategory").style.display = "block";
   document.getElementById("structureCategory").style.display =
     activeFilters.structure || activeFilters.buttons ? "block" : "none";
@@ -474,6 +508,7 @@ const NAVIGATION_CONFIG = {
   headings: { attr: "data-heading-id", handler: navigateToHeading },
   forms: { attr: "data-form-id", handler: navigateToForm },
   structure: { attr: "data-button-id", handler: navigateToButton },
+  contrast: { attr: "data-contrast-id", handler: navigateToContrast },
 };
 
 // Attacher les event listeners pour les boutons de navigation
@@ -526,6 +561,27 @@ function attachResourcesListeners(contentElement) {
   });
 }
 
+// Attacher les event listeners pour les boutons "Voir le code HTML"
+function attachCodeSnippetListeners(contentElement) {
+  contentElement.querySelectorAll(".toggle-code-snippet").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const snippetId = btn.getAttribute("data-snippet-id");
+      const snippetElement = document.getElementById(snippetId);
+      const textElement = btn.querySelector("span");
+
+      if (snippetElement.style.display === "none") {
+        snippetElement.style.display = "block";
+        textElement.textContent = "Masquer le code";
+        btn.classList.add("active");
+      } else {
+        snippetElement.style.display = "none";
+        textElement.textContent = "Voir le code HTML";
+        btn.classList.remove("active");
+      }
+    });
+  });
+}
+
 // Mettre à jour le badge d'une catégorie
 function updateCategoryBadge(badgeElement, issuesCount) {
   badgeElement.textContent = issuesCount;
@@ -544,22 +600,30 @@ function displayCategory(name, data, contentId, badgeId) {
   // Mettre à jour le badge
   updateCategoryBadge(badgeElement, data.issues.length);
 
+  // Afficher le disclaimer pour le contraste si présent
+  let disclaimerHTML = "";
+  if (name === "contrast" && data.disclaimer) {
+    disclaimerHTML = `<div class="contrast-disclaimer">${data.disclaimer}</div>`;
+  }
+
   // Afficher le message de succès ou les issues
   if (data.issues.length === 0) {
-    contentElement.innerHTML =
-      '<p class="success-message">✅ Aucun problème détecté</p>';
+    contentElement.innerHTML = `${disclaimerHTML}<p class="success-message">✅ Aucun problème détecté</p>`;
     return;
   }
 
   // Générer le HTML pour toutes les issues
-  contentElement.innerHTML = data.issues
+  const issuesHTML = data.issues
     .map((issue, issueIndex) => generateIssueHTML(issue, issueIndex, name))
     .join("");
+
+  contentElement.innerHTML = `${disclaimerHTML}${issuesHTML}`;
 
   // Attacher tous les event listeners
   attachNavigationListeners(contentElement, name);
   attachMarkdownListeners(contentElement, data);
   attachResourcesListeners(contentElement);
+  attachCodeSnippetListeners(contentElement);
 }
 
 function showError(message) {
@@ -603,37 +667,35 @@ function exportReport(results, score) {
   });
 }
 
-// Fonction pour filtrer les résultats selon les filtres actifs
-function filterResults(results) {
-  const filtered = {
-    images: activeFilters.images
-      ? results.images
-      : { total: 0, issues: [], passed: 0 },
-    svg: activeFilters.svg ? results.svg : { total: 0, issues: [], passed: 0 },
-    links: activeFilters.links
-      ? results.links
-      : { total: 0, issues: [], passed: 0 },
-    headings: activeFilters.headings
-      ? results.headings
-      : { total: 0, issues: [], passed: 0 },
-    forms: activeFilters.forms
-      ? results.forms
-      : { total: 0, issues: [], passed: 0 },
-    colorblind: activeFilters.colorblind
-      ? results.colorblind
-      : { total: 0, issues: [], passed: 0 },
-    lang: activeFilters.structure
-      ? results.lang
-      : { total: 0, issues: [], passed: 0 },
-    landmarks: activeFilters.structure
-      ? results.landmarks
-      : { total: 0, issues: [], passed: 0 },
-    buttons: activeFilters.buttons
-      ? results.buttons
-      : { total: 0, issues: [], passed: 0 },
-  };
+/**
+ * Applique un filtre à une catégorie de résultats
+ * @param {boolean} isActive - Le filtre est-il actif ?
+ * @param {Object} resultData - Les données de la catégorie
+ * @returns {Object} - Les données si actif, sinon un objet vide
+ */
+function applyFilter(isActive, resultData) {
+  return isActive ? resultData : { total: 0, issues: [], passed: 0 };
+}
 
-  return filtered;
+/**
+ * Filtre les résultats selon les filtres actifs
+ * Utilise applyFilter pour réduire la complexité
+ * @param {Object} results - Résultats complets de l'audit
+ * @returns {Object} - Résultats filtrés
+ */
+function filterResults(results) {
+  return {
+    images: applyFilter(activeFilters.images, results.images),
+    svg: applyFilter(activeFilters.svg, results.svg),
+    links: applyFilter(activeFilters.links, results.links),
+    headings: applyFilter(activeFilters.headings, results.headings),
+    forms: applyFilter(activeFilters.forms, results.forms),
+    contrast: applyFilter(activeFilters.contrast, results.contrast),
+    colorblind: applyFilter(activeFilters.colorblind, results.colorblind),
+    lang: applyFilter(activeFilters.structure, results.lang),
+    landmarks: applyFilter(activeFilters.structure, results.landmarks),
+    buttons: applyFilter(activeFilters.buttons, results.buttons),
+  };
 }
 
 // Fonction pour configurer les gestionnaires de filtres

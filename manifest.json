@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "QuickA11y Audit",
   "version": "1.0.0",
-  "description": "Auditez l'accessibilité de vos pages en un clic. Détectez les erreurs et générez des rapports PDF ou Markdown. Testez vos pages en mode simulation de daltonisme.",
+  "description": "Auditez l'accessibilité de vos pages en un clic. Visualisez les erreurs, exportez ou copiez les résultats et résolvez-les rapidement. Mode simulation de daltonisme intégré.",
   "permissions": ["activeTab", "scripting", "storage"],
   "action": {
     "default_popup": "src/popup/popup.html",

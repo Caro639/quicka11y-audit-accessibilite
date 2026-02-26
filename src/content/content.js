@@ -1478,8 +1478,6 @@ function clearVisualFeedback() {
     img.style.outlineOffset = "";
     img.style.boxShadow = "";
     img.style.animation = "";
-    img.removeAttribute("data-accessibility-issue");
-    img.removeAttribute("data-accessibility-id");
 
     // Remove badge
     const badge = img.parentElement.querySelector(".accessibility-badge");
@@ -1501,8 +1499,6 @@ function clearVisualFeedback() {
   markedLinks.forEach((link) => {
     link.style.outline = "";
     link.style.outlineOffset = "";
-    link.removeAttribute("data-accessibility-issue");
-    link.removeAttribute("data-accessibility-id");
 
     // Remove badge du lien
     const badge = link.parentElement.querySelector(".accessibility-badge-link");
@@ -1525,8 +1521,6 @@ function clearVisualFeedback() {
     svg.style.outline = "";
     svg.style.outlineOffset = "";
     svg.style.boxShadow = "";
-    svg.removeAttribute("data-accessibility-issue");
-    svg.removeAttribute("data-accessibility-id");
 
     // Remove badge du SVG
     const badge = svg.parentElement.querySelector(".accessibility-badge-svg");
@@ -1548,8 +1542,6 @@ function clearVisualFeedback() {
   markedHeadings.forEach((heading) => {
     heading.style.outline = "";
     heading.style.outlineOffset = "";
-    heading.removeAttribute("data-accessibility-issue");
-    heading.removeAttribute("data-accessibility-id");
 
     // Remove badge du titre
     const badge = heading.parentElement.querySelector(
@@ -1575,8 +1567,6 @@ function clearVisualFeedback() {
   markedForms.forEach((form) => {
     form.style.outline = "";
     form.style.outlineOffset = "";
-    form.removeAttribute("data-accessibility-issue");
-    form.removeAttribute("data-accessibility-id");
 
     // Remove badge du formulaire
     const badge = form.parentElement.querySelector(".accessibility-badge-form");
@@ -1598,8 +1588,6 @@ function clearVisualFeedback() {
   markedButtons.forEach((button) => {
     button.style.outline = "";
     button.style.outlineOffset = "";
-    button.removeAttribute("data-accessibility-issue");
-    button.removeAttribute("data-accessibility-id");
 
     // Remove badge du bouton
     const badge = button.parentElement.querySelector(
@@ -1624,8 +1612,6 @@ function clearVisualFeedback() {
     el.style.outline = "";
     el.style.outlineOffset = "";
     el.style.boxShadow = "";
-    el.removeAttribute("data-accessibility-issue");
-    el.removeAttribute("data-accessibility-id");
 
     // Remove badge du contraste
     const badge = el.parentElement.querySelector(
